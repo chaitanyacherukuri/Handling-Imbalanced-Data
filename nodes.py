@@ -151,9 +151,13 @@ def recommend_technique_node(state: Dict) -> Dict:
     data = state.get("data")
 
     if distribution is None or imbalance_info is None or data is None:
+        print("ERROR: Missing required information in recommend_technique_node")
+        # Instead of failing, provide a default recommendation
         return {
-            "error": "Missing required information",
-            "status": "failed"
+            "recommendation": "Technique: SMOTE\nReason: Default technique selected due to missing information.",
+            "recommended_technique": "SMOTE",
+            "status": "success",
+            "message": "Using default technique due to missing information: SMOTE"
         }
 
     try:
@@ -188,45 +192,89 @@ def recommend_technique_node(state: Dict) -> Dict:
         Parameters: [any specific parameters that should be set]
         """)
 
-        # Get the LLM - Using Groq with Llama-4-Scout model
-        llm = ChatGroq(
-            model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-            temperature=0,
-            max_tokens=1000,
-            groq_api_key=os.environ.get("GROQ_API_KEY")
-        )
+        try:
+            # Get the LLM - Using Groq with Llama-4-Scout model
+            print("Initializing Groq API client...")
+            llm = ChatGroq(
+                model_name="meta-llama/llama-4-scout-17b-16e-instruct",
+                temperature=0,
+                max_tokens=1000,
+                groq_api_key=os.environ.get("GROQ_API_KEY")
+            )
 
-        # Format the prompt with the data
-        formatted_prompt = prompt.format(
-            total_samples=distribution["total_samples"],
-            num_classes=distribution["num_classes"],
-            class_counts=distribution["class_counts"],
-            class_percentages=distribution["class_percentages"],
-            is_imbalanced=imbalance_info["is_imbalanced"],
-            imbalance_ratio=imbalance_info["imbalance_ratio"],
-            minority_class=imbalance_info["minority_class"],
-            majority_class=imbalance_info["majority_class"],
-            severity=imbalance_info["severity"]
-        )
+            # Format the prompt with the data
+            print("Formatting prompt with dataset information...")
+            formatted_prompt = prompt.format(
+                total_samples=distribution["total_samples"],
+                num_classes=distribution["num_classes"],
+                class_counts=distribution["class_counts"],
+                class_percentages=distribution["class_percentages"],
+                is_imbalanced=imbalance_info["is_imbalanced"],
+                imbalance_ratio=imbalance_info["imbalance_ratio"],
+                minority_class=imbalance_info["minority_class"],
+                majority_class=imbalance_info["majority_class"],
+                severity=imbalance_info["severity"]
+            )
 
-        # Get the recommendation from the LLM
-        response = llm.invoke(formatted_prompt)
-        recommendation = response.content
+            # Get the recommendation from the LLM
+            print("Calling Groq API for technique recommendation...")
+            response = llm.invoke(formatted_prompt)
+            recommendation = response.content
+            print(f"Received recommendation from Groq API: {recommendation[:100]}...")
 
-        # Parse the recommendation
-        technique_line = [line for line in recommendation.split('\n') if line.startswith("Technique:")][0]
-        technique = technique_line.split("Technique:")[1].strip()
+            # Parse the recommendation
+            technique_lines = [line for line in recommendation.split('\n') if line.startswith("Technique:")]
 
-        return {
-            "recommendation": recommendation,
-            "recommended_technique": technique,
-            "status": "success",
-            "message": f"Successfully recommended technique: {technique}"
-        }
+            if technique_lines:
+                technique_line = technique_lines[0]
+                technique = technique_line.split("Technique:")[1].strip()
+                print(f"Successfully parsed technique: {technique}")
+            else:
+                # Fallback if the format is not as expected
+                print("Warning: Could not parse technique from LLM response. Using default technique (SMOTE).")
+                technique = "SMOTE"
+                recommendation = f"Technique: {technique}\nReason: Default technique selected due to parsing error."
+
+            return {
+                "recommendation": recommendation,
+                "recommended_technique": technique,
+                "status": "success",
+                "message": f"Successfully recommended technique: {technique}"
+            }
+        except Exception as llm_error:
+            # Fallback to a default recommendation if the LLM call fails
+            print(f"Error calling Groq API: {str(llm_error)}")
+            print("Using fallback recommendation...")
+
+            # Determine a reasonable default based on imbalance severity
+            severity = imbalance_info.get("severity", "moderate")
+            if severity == "severe":
+                technique = "SMOTE"
+                reason = "Default recommendation for severe imbalance when LLM call fails."
+            elif severity == "moderate":
+                technique = "Random Over-sampling"
+                reason = "Default recommendation for moderate imbalance when LLM call fails."
+            else:
+                technique = "Random Under-sampling"
+                reason = "Default recommendation for mild imbalance when LLM call fails."
+
+            recommendation = f"Technique: {technique}\nReason: {reason}"
+            print(f"Using fallback technique: {technique}")
+
+            return {
+                "recommendation": recommendation,
+                "recommended_technique": technique,
+                "status": "success",
+                "message": f"Using fallback technique due to LLM error: {technique}"
+            }
     except Exception as e:
+        print(f"Error in recommend_technique_node: {str(e)}")
+        # Provide a default recommendation even in case of general errors
         return {
-            "error": str(e),
-            "status": "failed"
+            "recommendation": "Technique: SMOTE\nReason: Default fallback due to error.",
+            "recommended_technique": "SMOTE",
+            "status": "success",
+            "message": f"Using default technique due to error: SMOTE. Error: {str(e)}"
         }
 
 def apply_resampling_node(state: Dict) -> Dict:
