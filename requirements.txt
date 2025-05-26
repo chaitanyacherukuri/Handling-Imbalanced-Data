@@ -1,7 +1,6 @@
 langgraph>=0.0.19
 langchain>=0.0.335
 langchain-groq>=0.0.2
-groq>=0.4.1
 pandas>=2.0.0
 numpy>=1.24.0
 matplotlib>=3.7.0

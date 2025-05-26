@@ -3,15 +3,11 @@ Implementation of nodes for the LangGraph workflow.
 """
 import os
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict
 from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
 from imblearn.over_sampling import SMOTE, RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler, NearMiss
 from imblearn.combine import SMOTEENN, SMOTETomek
-from sklearn.preprocessing import LabelEncoder
 
 from utils import (
     load_dataset,
@@ -19,418 +15,227 @@ from utils import (
     detect_imbalance,
     visualize_distribution,
     save_visualization,
-    prepare_data_for_resampling
+    prepare_data_for_resampling,
+    handle_node_errors,
+    ensure_output_dir
 )
 
+@handle_node_errors
 def load_data_node(state: Dict) -> Dict:
-    """
-    Node for loading data from a CSV file.
-
-    Args:
-        state: Current state of the workflow
-
-    Returns:
-        Updated state with loaded data
-    """
+    """Node for loading data from a CSV file."""
     file_path = state.get("file_path")
     if not file_path:
-        return {
-            "error": "No file path provided",
-            "status": "failed"
-        }
+        raise ValueError("No file path provided")
 
-    try:
-        df = load_dataset(file_path)
+    df = load_dataset(file_path)
+    return {
+        "data": df,
+        "columns": list(df.columns),
+        "num_samples": len(df),
+        "message": f"Successfully loaded dataset with {len(df)} samples and {len(df.columns)} columns"
+    }
 
-        return {
-            "data": df,
-            "columns": list(df.columns),
-            "num_samples": len(df),
-            "status": "success",
-            "message": f"Successfully loaded dataset with {len(df)} samples and {len(df.columns)} columns"
-        }
-    except Exception as e:
-        return {
-            "error": str(e),
-            "status": "failed"
-        }
-
+@handle_node_errors
 def analyze_distribution_node(state: Dict) -> Dict:
-    """
-    Node for analyzing class distribution.
-
-    Args:
-        state: Current state of the workflow
-
-    Returns:
-        Updated state with distribution analysis
-    """
+    """Node for analyzing class distribution."""
     df = state.get("data")
     target_column = state.get("target_column")
 
     if df is None:
-        return {
-            "error": "No data available",
-            "status": "failed"
-        }
-
+        raise ValueError("No data available")
     if target_column is None:
-        return {
-            "error": "No target column specified",
-            "status": "failed"
-        }
+        raise ValueError("No target column specified")
 
-    try:
-        distribution = analyze_class_distribution(df, target_column)
+    distribution = analyze_class_distribution(df, target_column)
 
-        # Create visualization
-        fig = visualize_distribution(df, target_column, "Original Class Distribution")
+    # Create and save visualization
+    fig = visualize_distribution(df, target_column, "Original Class Distribution")
+    output_dir = ensure_output_dir(state.get("output_dir"))
+    if output_dir:
+        save_visualization(fig, os.path.join(output_dir, "original_distribution.png"))
 
-        # Save visualization if output directory is provided
-        output_dir = state.get("output_dir")
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            save_visualization(fig, os.path.join(output_dir, "original_distribution.png"))
+    return {
+        "distribution": distribution,
+        "message": f"Successfully analyzed class distribution for {target_column}"
+    }
 
-        return {
-            "distribution": distribution,
-            "status": "success",
-            "message": f"Successfully analyzed class distribution for {target_column}"
-        }
-    except Exception as e:
-        return {
-            "error": str(e),
-            "status": "failed"
-        }
-
+@handle_node_errors
 def detect_imbalance_node(state: Dict) -> Dict:
-    """
-    Node for detecting class imbalance.
-
-    Args:
-        state: Current state of the workflow
-
-    Returns:
-        Updated state with imbalance detection results
-    """
+    """Node for detecting class imbalance."""
     distribution = state.get("distribution")
-
     if distribution is None:
-        return {
-            "error": "No distribution information available",
-            "status": "failed"
-        }
+        raise ValueError("No distribution information available")
 
-    try:
-        imbalance_info = detect_imbalance(distribution)
+    imbalance_info = detect_imbalance(distribution)
+    return {
+        "imbalance_info": imbalance_info,
+        "message": f"Imbalance detection completed. Imbalance ratio: {imbalance_info['imbalance_ratio']:.2f}"
+    }
 
-        return {
-            "imbalance_info": imbalance_info,
-            "status": "success",
-            "message": f"Imbalance detection completed. Imbalance ratio: {imbalance_info['imbalance_ratio']:.2f}"
-        }
-    except Exception as e:
-        return {
-            "error": str(e),
-            "status": "failed"
-        }
+def get_default_technique(severity: str) -> str:
+    """Get default technique based on imbalance severity."""
+    return {
+        "severe": "SMOTE",
+        "moderate": "Random Over-sampling",
+        "mild": "Random Under-sampling"
+    }.get(severity, "SMOTE")
 
+@handle_node_errors
 def recommend_technique_node(state: Dict) -> Dict:
-    """
-    Node for recommending an appropriate resampling technique.
-    Uses LLM to reason about the best technique based on the dataset characteristics.
-
-    Args:
-        state: Current state of the workflow
-
-    Returns:
-        Updated state with recommended technique
-    """
+    """Node for recommending an appropriate resampling technique using LLM."""
     distribution = state.get("distribution")
     imbalance_info = state.get("imbalance_info")
-    data = state.get("data")
 
-    if distribution is None or imbalance_info is None or data is None:
-        print("ERROR: Missing required information in recommend_technique_node")
-        # Instead of failing, provide a default recommendation
+    if not all([distribution, imbalance_info]):
+        severity = imbalance_info.get("severity", "moderate") if imbalance_info else "moderate"
+        technique = get_default_technique(severity)
         return {
-            "recommendation": "Technique: SMOTE\nReason: Default technique selected due to missing information.",
-            "recommended_technique": "SMOTE",
-            "status": "success",
-            "message": "Using default technique due to missing information: SMOTE"
+            "recommendation": f"Technique: {technique}\nReason: Default technique for {severity} imbalance.",
+            "recommended_technique": technique,
+            "message": f"Using default technique: {technique}"
         }
 
+    # Try LLM recommendation with simplified fallback
     try:
-        # Create a prompt for the LLM
-        prompt = ChatPromptTemplate.from_template("""
-        You are an expert data scientist specializing in handling class imbalance problems.
+        llm = ChatGroq(
+            model_name="meta-llama/llama-4-scout-17b-16e-instruct",
+            temperature=0,
+            max_tokens=500,
+            groq_api_key=os.environ.get("GROQ_API_KEY")
+        )
 
-        Dataset information:
-        - Total samples: {total_samples}
-        - Number of classes: {num_classes}
-        - Class distribution: {class_counts}
-        - Class percentages: {class_percentages}
+        prompt = f"""Recommend a resampling technique for class imbalance:
+- Imbalance ratio: {imbalance_info['imbalance_ratio']:.2f}
+- Severity: {imbalance_info['severity']}
+- Total samples: {distribution['total_samples']}
 
-        Imbalance information:
-        - Is imbalanced: {is_imbalanced}
-        - Imbalance ratio: {imbalance_ratio}
-        - Minority class: {minority_class}
-        - Majority class: {majority_class}
-        - Severity: {severity}
+Choose from: SMOTE, Random Over-sampling, Random Under-sampling, NearMiss, SMOTEENN, SMOTETomek
 
-        Based on this information, recommend the most appropriate resampling technique from the following options:
-        1. SMOTE (Synthetic Minority Over-sampling Technique)
-        2. Random Over-sampling
-        3. Random Under-sampling
-        4. NearMiss
-        5. SMOTEENN (SMOTE + Edited Nearest Neighbors)
-        6. SMOTETomek (SMOTE + Tomek links)
+Format: Technique: [name]
+Reason: [brief explanation]"""
 
-        Provide your recommendation in the following format:
-        Technique: [name of technique]
-        Reason: [detailed explanation of why this technique is appropriate]
-        Parameters: [any specific parameters that should be set]
-        """)
+        response = llm.invoke(prompt)
+        recommendation = response.content
 
-        try:
-            # Get the LLM - Using Groq with Llama-4-Scout model
-            print("Initializing Groq API client...")
-            llm = ChatGroq(
-                model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-                temperature=0,
-                max_tokens=1000,
-                groq_api_key=os.environ.get("GROQ_API_KEY")
-            )
+        # Parse technique name
+        for line in recommendation.split('\n'):
+            if line.startswith("Technique:"):
+                technique = line.split("Technique:")[1].strip()
+                break
+        else:
+            technique = get_default_technique(imbalance_info["severity"])
 
-            # Format the prompt with the data
-            print("Formatting prompt with dataset information...")
-            formatted_prompt = prompt.format(
-                total_samples=distribution["total_samples"],
-                num_classes=distribution["num_classes"],
-                class_counts=distribution["class_counts"],
-                class_percentages=distribution["class_percentages"],
-                is_imbalanced=imbalance_info["is_imbalanced"],
-                imbalance_ratio=imbalance_info["imbalance_ratio"],
-                minority_class=imbalance_info["minority_class"],
-                majority_class=imbalance_info["majority_class"],
-                severity=imbalance_info["severity"]
-            )
-
-            # Get the recommendation from the LLM
-            print("Calling Groq API for technique recommendation...")
-            response = llm.invoke(formatted_prompt)
-            recommendation = response.content
-            print(f"Received recommendation from Groq API: {recommendation[:100]}...")
-
-            # Parse the recommendation
-            technique_lines = [line for line in recommendation.split('\n') if line.startswith("Technique:")]
-
-            if technique_lines:
-                technique_line = technique_lines[0]
-                technique = technique_line.split("Technique:")[1].strip()
-                print(f"Successfully parsed technique: {technique}")
-            else:
-                # Fallback if the format is not as expected
-                print("Warning: Could not parse technique from LLM response. Using default technique (SMOTE).")
-                technique = "SMOTE"
-                recommendation = f"Technique: {technique}\nReason: Default technique selected due to parsing error."
-
-            return {
-                "recommendation": recommendation,
-                "recommended_technique": technique,
-                "status": "success",
-                "message": f"Successfully recommended technique: {technique}"
-            }
-        except Exception as llm_error:
-            # Fallback to a default recommendation if the LLM call fails
-            print(f"Error calling Groq API: {str(llm_error)}")
-            print("Using fallback recommendation...")
-
-            # Determine a reasonable default based on imbalance severity
-            severity = imbalance_info.get("severity", "moderate")
-            if severity == "severe":
-                technique = "SMOTE"
-                reason = "Default recommendation for severe imbalance when LLM call fails."
-            elif severity == "moderate":
-                technique = "Random Over-sampling"
-                reason = "Default recommendation for moderate imbalance when LLM call fails."
-            else:
-                technique = "Random Under-sampling"
-                reason = "Default recommendation for mild imbalance when LLM call fails."
-
-            recommendation = f"Technique: {technique}\nReason: {reason}"
-            print(f"Using fallback technique: {technique}")
-
-            return {
-                "recommendation": recommendation,
-                "recommended_technique": technique,
-                "status": "success",
-                "message": f"Using fallback technique due to LLM error: {technique}"
-            }
-    except Exception as e:
-        print(f"Error in recommend_technique_node: {str(e)}")
-        # Provide a default recommendation even in case of general errors
         return {
-            "recommendation": "Technique: SMOTE\nReason: Default fallback due to error.",
-            "recommended_technique": "SMOTE",
-            "status": "success",
-            "message": f"Using default technique due to error: SMOTE. Error: {str(e)}"
+            "recommendation": recommendation,
+            "recommended_technique": technique,
+            "message": f"LLM recommended technique: {technique}",
+            "recommendation_source": "LLM"
         }
 
+    except Exception as e:
+        # Simple fallback without verbose logging
+        technique = get_default_technique(imbalance_info["severity"])
+        print(f"Info: LLM call failed ({str(e)[:50]}...), using fallback technique: {technique}")
+        return {
+            "recommendation": f"Technique: {technique}\nReason: Fallback recommendation for {imbalance_info['severity']} imbalance.",
+            "recommended_technique": technique,
+            "message": f"Using fallback technique: {technique}",
+            "recommendation_source": "Fallback"
+        }
+
+@handle_node_errors
 def apply_resampling_node(state: Dict) -> Dict:
-    """
-    Node for applying the recommended resampling technique.
-
-    Args:
-        state: Current state of the workflow
-
-    Returns:
-        Updated state with resampled data
-    """
+    """Node for applying the recommended resampling technique."""
     data = state.get("data")
     target_column = state.get("target_column")
     recommended_technique = state.get("recommended_technique")
 
     if data is None or target_column is None or recommended_technique is None:
-        return {
-            "error": "Missing required information",
-            "status": "failed"
-        }
+        raise ValueError("Missing required information")
 
-    try:
-        # Prepare data for resampling
-        X, y = prepare_data_for_resampling(data, target_column)
+    # Prepare data for resampling
+    X, y = prepare_data_for_resampling(data, target_column)
 
-        # Apply the recommended technique
-        resampling_techniques = {
-            "SMOTE": SMOTE(random_state=42),
-            "Random Over-sampling": RandomOverSampler(random_state=42),
-            "Random Under-sampling": RandomUnderSampler(random_state=42),
-            "NearMiss": NearMiss(version=1),
-            "SMOTEENN": SMOTEENN(random_state=42),
-            "SMOTETomek": SMOTETomek(random_state=42)
-        }
+    # Resampling techniques mapping
+    techniques = {
+        "SMOTE": SMOTE(random_state=42),
+        "Random Over-sampling": RandomOverSampler(random_state=42),
+        "Random Under-sampling": RandomUnderSampler(random_state=42),
+        "NearMiss": NearMiss(version=1),
+        "SMOTEENN": SMOTEENN(random_state=42),
+        "SMOTETomek": SMOTETomek(random_state=42)
+    }
 
-        # Find the closest matching technique
-        technique_key = None
-        for key in resampling_techniques.keys():
-            if key.lower() in recommended_technique.lower():
-                technique_key = key
-                break
+    # Find matching technique or default to SMOTE
+    technique_key = next(
+        (key for key in techniques if key.lower() in recommended_technique.lower()),
+        "SMOTE"
+    )
 
-        if technique_key is None:
-            # Default to SMOTE if no match found
-            technique_key = "SMOTE"
+    # Apply resampling
+    X_resampled, y_resampled = techniques[technique_key].fit_resample(X, y)
 
-        # Apply resampling
-        X_resampled, y_resampled = resampling_techniques[technique_key].fit_resample(X, y)
+    # Convert back to DataFrame
+    resampled_df = pd.DataFrame(X_resampled, columns=X.columns)
+    resampled_df[target_column] = y_resampled
 
-        # Convert back to DataFrame
-        resampled_df = pd.DataFrame(X_resampled, columns=X.columns)
-        resampled_df[target_column] = y_resampled
+    return {
+        "resampled_data": resampled_df,
+        "applied_technique": technique_key,
+        "original_shape": data.shape,
+        "resampled_shape": resampled_df.shape,
+        "message": f"Applied {technique_key}. Shape: {data.shape} → {resampled_df.shape}"
+    }
 
-        return {
-            "resampled_data": resampled_df,
-            "applied_technique": technique_key,
-            "original_shape": data.shape,
-            "resampled_shape": resampled_df.shape,
-            "status": "success",
-            "message": f"Successfully applied {technique_key}. Original shape: {data.shape}, Resampled shape: {resampled_df.shape}"
-        }
-    except Exception as e:
-        return {
-            "error": str(e),
-            "status": "failed"
-        }
-
+@handle_node_errors
 def visualize_results_node(state: Dict) -> Dict:
-    """
-    Node for visualizing the results of resampling.
-
-    Args:
-        state: Current state of the workflow
-
-    Returns:
-        Updated state with visualization paths
-    """
+    """Node for visualizing the results of resampling."""
     original_data = state.get("data")
     resampled_data = state.get("resampled_data")
     target_column = state.get("target_column")
-    output_dir = state.get("output_dir")
 
     if original_data is None or resampled_data is None or target_column is None:
-        return {
-            "error": "Missing required information",
-            "status": "failed"
+        raise ValueError("Missing required information")
+
+    # Create visualizations
+    original_fig = visualize_distribution(original_data, target_column, "Original Class Distribution")
+    resampled_fig = visualize_distribution(resampled_data, target_column, "Resampled Class Distribution")
+
+    visualization_paths = {}
+    output_dir = ensure_output_dir(state.get("output_dir"))
+
+    if output_dir:
+        original_path = os.path.join(output_dir, "original_distribution.png")
+        resampled_path = os.path.join(output_dir, "resampled_distribution.png")
+
+        save_visualization(original_fig, original_path)
+        save_visualization(resampled_fig, resampled_path)
+
+        visualization_paths = {
+            "original": original_path,
+            "resampled": resampled_path
         }
 
-    try:
-        # Create visualizations
-        original_fig = visualize_distribution(original_data, target_column, "Original Class Distribution")
-        resampled_fig = visualize_distribution(resampled_data, target_column, "Resampled Class Distribution")
+    return {
+        "visualization_paths": visualization_paths,
+        "message": "Successfully created visualizations"
+    }
 
-        visualization_paths = {}
-
-        # Save visualizations if output directory is provided
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-
-            original_path = os.path.join(output_dir, "original_distribution.png")
-            resampled_path = os.path.join(output_dir, "resampled_distribution.png")
-
-            save_visualization(original_fig, original_path)
-            save_visualization(resampled_fig, resampled_path)
-
-            visualization_paths = {
-                "original": original_path,
-                "resampled": resampled_path
-            }
-
-        return {
-            "visualization_paths": visualization_paths,
-            "status": "success",
-            "message": "Successfully created visualizations"
-        }
-    except Exception as e:
-        return {
-            "error": str(e),
-            "status": "failed"
-        }
-
+@handle_node_errors
 def save_results_node(state: Dict) -> Dict:
-    """
-    Node for saving the resampled dataset.
-
-    Args:
-        state: Current state of the workflow
-
-    Returns:
-        Updated state with saved file path
-    """
+    """Node for saving the resampled dataset."""
     resampled_data = state.get("resampled_data")
-    output_dir = state.get("output_dir")
-
     if resampled_data is None:
-        return {
-            "error": "No resampled data available",
-            "status": "failed"
-        }
+        raise ValueError("No resampled data available")
 
-    try:
-        saved_path = None
+    saved_path = None
+    output_dir = ensure_output_dir(state.get("output_dir"))
 
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            saved_path = os.path.join(output_dir, "resampled_data.csv")
-            resampled_data.to_csv(saved_path, index=False)
+    if output_dir:
+        saved_path = os.path.join(output_dir, "resampled_data.csv")
+        resampled_data.to_csv(saved_path, index=False)
 
-        return {
-            "saved_path": saved_path,
-            "status": "success",
-            "message": f"Successfully saved resampled data to {saved_path}" if saved_path else "Resampled data not saved (no output directory specified)"
-        }
-    except Exception as e:
-        return {
-            "error": str(e),
-            "status": "failed"
-        }
+    return {
+        "saved_path": saved_path,
+        "message": f"Saved resampled data to {saved_path}" if saved_path else "Data not saved (no output directory)"
+    }

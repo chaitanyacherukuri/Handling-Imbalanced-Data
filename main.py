@@ -5,84 +5,79 @@ import os
 import argparse
 import pandas as pd
 import numpy as np
-from typing import Optional
 import json
-import sys
 from dotenv import load_dotenv
 
 from agent import run_workflow
 
-def load_env_file(env_file='.env'):
-    """
-    Load environment variables from a .env file.
+def load_env_file():
+    """Load environment variables from .env file."""
+    if not os.path.exists('.env'):
+        raise FileNotFoundError("Missing .env file with GROQ_API_KEY")
 
-    Args:
-        env_file: Path to the .env file (default: '.env')
-    """
-    # Check if .env file exists
-    if not os.path.exists(env_file):
-        print(f"Warning: {env_file} file not found.")
-        print("Please create a .env file with your Groq API key.")
-        print("You can copy .env.example to .env and fill in your credentials.")
-        sys.exit(1)
+    load_dotenv()
 
-    # Load environment variables from .env file
-    load_dotenv(env_file)
-
-    # Check if required Groq API key is set
     if not os.environ.get('GROQ_API_KEY'):
-        print("Error: Missing GROQ_API_KEY in .env file")
-        print("Please make sure your .env file contains your Groq API key.")
-        sys.exit(1)
-
-    print("Groq API key loaded successfully from .env file.")
+        raise ValueError("Missing GROQ_API_KEY in .env file")
 
 def generate_sample_dataset(output_path: str, imbalance_ratio: float = 10.0) -> str:
-    """
-    Generate a sample imbalanced dataset for testing.
-
-    Args:
-        output_path: Path to save the dataset
-        imbalance_ratio: Ratio of majority to minority class
-
-    Returns:
-        Path to the generated dataset
-    """
-    # Create directory if it doesn't exist
+    """Generate a sample imbalanced dataset."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-    # Set random seed for reproducibility
     np.random.seed(42)
 
-    # Generate features
-    n_samples_majority = 1000
-    n_samples_minority = int(n_samples_majority / imbalance_ratio)
-    n_features = 5
+    # Generate imbalanced data
+    n_majority, n_minority = 1000, int(1000 / imbalance_ratio)
+    X = np.vstack([
+        np.random.randn(n_majority, 5),
+        np.random.randn(n_minority, 5)
+    ])
+    y = np.hstack([np.zeros(n_majority), np.ones(n_minority)])
 
-    # Generate majority class samples
-    X_majority = np.random.randn(n_samples_majority, n_features)
-    y_majority = np.zeros(n_samples_majority)
-
-    # Generate minority class samples
-    X_minority = np.random.randn(n_samples_minority, n_features)
-    y_minority = np.ones(n_samples_minority)
-
-    # Combine the data
-    X = np.vstack([X_majority, X_minority])
-    y = np.hstack([y_majority, y_minority])
-
-    # Create a DataFrame
-    feature_names = [f"feature_{i}" for i in range(n_features)]
-    df = pd.DataFrame(X, columns=feature_names)
+    # Create and save DataFrame
+    df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(5)])
     df["target"] = y.astype(int)
-
-    # Save the dataset
     df.to_csv(output_path, index=False)
 
-    print(f"Generated sample dataset with {len(df)} samples")
-    print(f"Class distribution: {df['target'].value_counts().to_dict()}")
-
+    print(f"Generated dataset: {len(df)} samples, ratio {imbalance_ratio}:1")
     return output_path
+
+def print_results(result: dict):
+    """Print workflow results in a concise format."""
+    # Get status from the final node result or overall result
+    status = result.get("status", "unknown")
+    if isinstance(result, dict) and len(result) == 1:
+        # If result contains only one key (the final node), get status from there
+        final_node_result = list(result.values())[0]
+        if isinstance(final_node_result, dict):
+            status = final_node_result.get("status", status)
+
+    print(f"\nWorkflow Status: {status}")
+
+    if status in ["success", "warning"]:
+        # Extract data from nested result structure
+        data = result
+        if isinstance(result, dict) and len(result) == 1:
+            data = list(result.values())[0]
+
+        if info := data.get("imbalance_info"):
+            print(f"Imbalance: {info.get('severity')} (ratio: {info.get('imbalance_ratio', 0):.2f})")
+
+        if technique := data.get("applied_technique"):
+            print(f"Applied: {technique}")
+            print(f"Shape: {data.get('original_shape')} → {data.get('resampled_shape')}")
+
+        if paths := data.get("visualization_paths"):
+            print(f"Visualizations: {len(paths)} files created")
+
+        if saved := data.get("saved_path"):
+            print(f"Saved: {saved}")
+    else:
+        error_msg = result.get("error", "Unknown error")
+        if isinstance(result, dict) and len(result) == 1:
+            final_node_result = list(result.values())[0]
+            if isinstance(final_node_result, dict):
+                error_msg = final_node_result.get("error", error_msg)
+        print(f"Error: {error_msg}")
 
 def main():
     """Main function to run the class imbalance agent."""
@@ -91,85 +86,55 @@ def main():
     parser.add_argument("--target", type=str, help="Name of the target column")
     parser.add_argument("--output", type=str, default="output", help="Directory to save outputs")
     parser.add_argument("--generate-sample", action="store_true", help="Generate a sample dataset")
-    parser.add_argument("--imbalance-ratio", type=float, default=10.0,
-                        help="Imbalance ratio for the sample dataset (majority:minority)")
+    parser.add_argument("--imbalance-ratio", type=float, default=10.0, help="Imbalance ratio")
 
     args = parser.parse_args()
-
-    # Load Groq API key from .env file
     load_env_file()
-
-    # Create output directory
     os.makedirs(args.output, exist_ok=True)
 
-    # Generate sample dataset if requested
+    # Determine input file and target
     if args.generate_sample:
-        sample_path = os.path.join(args.output, "sample_dataset.csv")
-        file_path = generate_sample_dataset(sample_path, args.imbalance_ratio)
+        file_path = generate_sample_dataset(
+            os.path.join(args.output, "sample_dataset.csv"),
+            args.imbalance_ratio
+        )
         target_column = "target"
     else:
-        # Use provided file and target column
         if not args.file or not args.target:
             parser.error("--file and --target are required when not using --generate-sample")
+        file_path, target_column = args.file, args.target
 
-        file_path = args.file
-        target_column = args.target
-
-    # Run the workflow
-    print(f"Running workflow with file: {file_path}, target: {target_column}")
+    # Run workflow
+    print(f"Processing: {file_path} (target: {target_column})")
     result = run_workflow(file_path, target_column, args.output)
 
-    # Print the final result
-    print("\n" + "="*50)
-    print("Workflow completed")
-    print("="*50)
+    # Print results and save JSON
+    print_results(result)
 
-    # Print key results
-    if result.get("status") == "success":
-        print(f"Status: {result.get('status')}")
-        print(f"Message: {result.get('message')}")
-
-        if result.get("imbalance_info"):
-            print("\nImbalance Information:")
-            imbalance_info = result.get("imbalance_info")
-            print(f"Is imbalanced: {imbalance_info.get('is_imbalanced')}")
-            print(f"Imbalance ratio: {imbalance_info.get('imbalance_ratio'):.2f}")
-            print(f"Severity: {imbalance_info.get('severity')}")
-
-        if result.get("recommended_technique"):
-            print(f"\nRecommended technique: {result.get('recommended_technique')}")
-
-        if result.get("applied_technique"):
-            print(f"\nApplied technique: {result.get('applied_technique')}")
-            print(f"Original shape: {result.get('original_shape')}")
-            print(f"Resampled shape: {result.get('resampled_shape')}")
-
-        if result.get("visualization_paths"):
-            print("\nVisualization paths:")
-            for name, path in result.get("visualization_paths").items():
-                print(f"- {name}: {path}")
-
-        if result.get("saved_path"):
-            print(f"\nResampled data saved to: {result.get('saved_path')}")
-    else:
-        print(f"Status: {result.get('status')}")
-        print(f"Error: {result.get('error')}")
-
-    # Save the full result as JSON
+    # Save simplified result with better error handling
     result_path = os.path.join(args.output, "result.json")
 
-    # Convert DataFrame objects to strings for JSON serialization
-    serializable_result = {}
-    for key, value in result.items():
-        if isinstance(value, pd.DataFrame):
-            serializable_result[key] = f"DataFrame with shape {value.shape}"
+    def make_serializable(obj):
+        """Recursively make objects JSON serializable."""
+        if hasattr(obj, 'shape'):  # DataFrame or numpy array
+            return f"DataFrame/Array with shape {obj.shape}"
+        elif isinstance(obj, dict):
+            return {k: make_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [make_serializable(item) for item in obj]
+        elif isinstance(obj, (str, int, float, bool)) or obj is None:
+            return obj
         else:
-            serializable_result[key] = value
+            return str(obj)
 
-    with open(result_path, "w") as f:
-        json.dump(serializable_result, f, indent=2)
-
-    print(f"\nFull result saved to: {result_path}")
+    try:
+        serializable_result = make_serializable(result) if result else {}
+        with open(result_path, "w") as f:
+            json.dump(serializable_result, f, indent=2)
+        print(f"Results saved to: {result_path}")
+    except Exception as e:
+        print(f"Warning: Could not save results to JSON: {e}")
+        print(f"Result type: {type(result)}, keys: {list(result.keys()) if result else 'None'}")
 
 if __name__ == "__main__":
     main()
