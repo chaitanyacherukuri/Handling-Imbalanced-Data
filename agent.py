@@ -11,7 +11,8 @@ from nodes import (
     recommend_technique_node,
     apply_resampling_node,
     visualize_results_node,
-    save_results_node
+    save_results_node,
+    recommend_ml_algorithm_node
 )
 
 # Simplified state schema
@@ -32,6 +33,7 @@ class ImbalanceAgentState(TypedDict):
     resampled_shape: Optional[Any]
     visualization_paths: Optional[Dict]
     saved_path: Optional[str]
+    ml_algorithm_recommendations: Optional[Dict]
 
     # Status tracking
     status: str
@@ -50,7 +52,8 @@ def create_workflow() -> StateGraph:
         ("recommend_technique", recommend_technique_node),
         ("apply_resampling", apply_resampling_node),
         ("visualize_results", visualize_results_node),
-        ("save_results", save_results_node)
+        ("save_results", save_results_node),
+        ("recommend_ml_algorithm", recommend_ml_algorithm_node)
     ]
 
     for name, node_func in nodes:
@@ -64,7 +67,8 @@ def create_workflow() -> StateGraph:
     workflow.add_edge("recommend_technique", "apply_resampling")
     workflow.add_edge("apply_resampling", "visualize_results")
     workflow.add_edge("visualize_results", "save_results")
-    workflow.add_edge("save_results", END)
+    workflow.add_edge("save_results", "recommend_ml_algorithm")
+    workflow.add_edge("recommend_ml_algorithm", END)
 
     return workflow.compile()
 

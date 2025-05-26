@@ -239,3 +239,158 @@ def save_results_node(state: Dict) -> Dict:
         "saved_path": saved_path,
         "message": f"Saved resampled data to {saved_path}" if saved_path else "Data not saved (no output directory)"
     }
+
+def get_default_ml_algorithms(dataset_size: int, num_features: int) -> Dict:
+    """Get default ML algorithm recommendations based on dataset characteristics."""
+    algorithms = []
+
+    if dataset_size > 50000:  # Large dataset
+        algorithms = [
+            {"name": "Random Forest", "reason": "Efficient for large datasets with good performance"},
+            {"name": "Logistic Regression", "reason": "Fast training and prediction for large datasets"},
+            {"name": "XGBoost", "reason": "Excellent performance on large tabular datasets"}
+        ]
+    elif dataset_size > 10000:  # Medium dataset
+        algorithms = [
+            {"name": "Random Forest", "reason": "Robust performance across various dataset sizes"},
+            {"name": "SVM", "reason": "Good performance on medium-sized datasets"},
+            {"name": "XGBoost", "reason": "Strong performance on structured data"}
+        ]
+    else:  # Small dataset
+        algorithms = [
+            {"name": "Random Forest", "reason": "Less prone to overfitting on small datasets"},
+            {"name": "Logistic Regression", "reason": "Simple and interpretable for small datasets"},
+            {"name": "Naive Bayes", "reason": "Works well with limited training data"}
+        ]
+
+    return {
+        "algorithms": algorithms,
+        "reasoning": f"Recommendations based on dataset size ({dataset_size} samples) and {num_features} features"
+    }
+
+@handle_node_errors
+def recommend_ml_algorithm_node(state: Dict) -> Dict:
+    """Recommend optimal ML classification algorithms for the resampled dataset."""
+    resampled_data = state.get("resampled_data")
+    applied_technique = state.get("applied_technique")
+    target_column = state.get("target_column")
+
+    if resampled_data is None:
+        raise ValueError("No resampled data available")
+
+    # Extract dataset characteristics
+    dataset_size = len(resampled_data)
+    num_features = len(resampled_data.columns) - 1  # Exclude target column
+
+    # Analyze feature types
+    feature_cols = [col for col in resampled_data.columns if col != target_column]
+    numeric_features = len(resampled_data[feature_cols].select_dtypes(include=['number']).columns)
+    categorical_features = num_features - numeric_features
+
+    # Try LLM recommendation with fallback
+    try:
+        llm = ChatGroq(
+            model_name="meta-llama/llama-4-scout-17b-16e-instruct",
+            temperature=0,
+            max_tokens=800,
+            groq_api_key=os.environ.get("GROQ_API_KEY")
+        )
+
+        prompt = f"""Recommend 2-3 optimal machine learning classification algorithms for this resampled dataset:
+
+Dataset Characteristics:
+- Size: {dataset_size} samples
+- Features: {num_features} total ({numeric_features} numeric, {categorical_features} categorical)
+- Applied resampling: {applied_technique}
+- Target column: {target_column}
+
+Consider:
+- Dataset size and computational efficiency
+- Feature types and preprocessing applied
+- Impact of resampling technique on algorithm choice
+- Performance vs interpretability trade-offs
+
+Choose from: Random Forest, SVM, Logistic Regression, XGBoost, Neural Networks, Naive Bayes
+
+Format your response as:
+Algorithm 1: [name]
+Reason: [brief explanation]
+
+Algorithm 2: [name]
+Reason: [brief explanation]
+
+Algorithm 3: [name]
+Reason: [brief explanation]"""
+
+        response = llm.invoke(prompt)
+        recommendation_text = response.content
+
+        # Parse LLM response with improved logic
+        algorithms = []
+        lines = recommendation_text.split('\n')
+        current_algorithm = None
+        in_negative_section = False
+
+        for line in lines:
+            line = line.strip()
+
+            # Skip negative sections
+            if "I did not choose" in line or "not recommended" in line.lower():
+                in_negative_section = True
+                continue
+
+            if in_negative_section and line.startswith("*"):
+                continue  # Skip bullet points in negative section
+
+            if line.startswith("Algorithm") and ":" in line:
+                in_negative_section = False
+                current_algorithm = line.split(":", 1)[1].strip()
+                # Clean up algorithm name
+                for target_alg in ["Random Forest", "SVM", "Logistic Regression", "XGBoost", "Neural Networks", "Naive Bayes"]:
+                    if target_alg in current_algorithm:
+                        current_algorithm = target_alg
+                        break
+            elif line.startswith("Reason:") and current_algorithm:
+                reason = line.split(":", 1)[1].strip()
+                algorithms.append({"name": current_algorithm, "reason": reason})
+                current_algorithm = None
+            # Alternative parsing for **Algorithm: Name** format
+            elif line.startswith("**Algorithm") and "**" in line:
+                in_negative_section = False
+                # Extract algorithm name from **Algorithm1: Random Forest** format
+                if ":" in line:
+                    alg_part = line.split(":", 1)[1].replace("**", "").strip()
+                    for target_alg in ["Random Forest", "SVM", "Logistic Regression", "XGBoost", "Neural Networks", "Naive Bayes"]:
+                        if target_alg in alg_part:
+                            current_algorithm = target_alg
+                            break
+
+        # Fallback if parsing failed
+        if not algorithms:
+            print(f"Debug: LLM response parsing failed. Response was: {recommendation_text[:200]}...")
+            fallback = get_default_ml_algorithms(dataset_size, num_features)
+            algorithms = fallback["algorithms"]
+            recommendation_text = f"LLM parsing failed. {fallback['reasoning']}"
+
+        return {
+            "ml_algorithm_recommendations": {
+                "algorithms": algorithms,
+                "recommendation_text": recommendation_text,
+                "source": "LLM"
+            },
+            "message": f"LLM recommended {len(algorithms)} ML algorithms for the resampled dataset"
+        }
+
+    except Exception as e:
+        # Fallback to default recommendations
+        print(f"Info: LLM call failed ({str(e)[:50]}...), using fallback ML algorithm recommendations")
+        fallback = get_default_ml_algorithms(dataset_size, num_features)
+
+        return {
+            "ml_algorithm_recommendations": {
+                "algorithms": fallback["algorithms"],
+                "recommendation_text": fallback["reasoning"],
+                "source": "Fallback"
+            },
+            "message": f"Using fallback recommendations: {len(fallback['algorithms'])} ML algorithms suggested"
+        }

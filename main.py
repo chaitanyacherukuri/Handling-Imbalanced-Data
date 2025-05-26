@@ -71,6 +71,12 @@ def print_results(result: dict):
 
         if saved := data.get("saved_path"):
             print(f"Saved: {saved}")
+
+        if ml_recs := data.get("ml_algorithm_recommendations"):
+            algorithms = ml_recs.get("algorithms", [])
+            print(f"ML Algorithms: {len(algorithms)} recommended")
+            for i, alg in enumerate(algorithms, 1):
+                print(f"  {i}. {alg.get('name', 'Unknown')} - {alg.get('reason', 'No reason provided')}")
     else:
         error_msg = result.get("error", "Unknown error")
         if isinstance(result, dict) and len(result) == 1:
