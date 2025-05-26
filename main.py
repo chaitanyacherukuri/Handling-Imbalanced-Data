@@ -12,6 +12,7 @@ from agent import run_workflow
 
 def load_env_file():
     """Load environment variables from .env file."""
+
     if not os.path.exists('.env'):
         raise FileNotFoundError("Missing .env file with GROQ_API_KEY")
 
@@ -22,6 +23,7 @@ def load_env_file():
 
 def generate_sample_dataset(output_path: str, imbalance_ratio: float = 10.0) -> str:
     """Generate a sample imbalanced dataset."""
+
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     np.random.seed(42)
 
@@ -43,6 +45,7 @@ def generate_sample_dataset(output_path: str, imbalance_ratio: float = 10.0) -> 
 
 def print_results(result: dict):
     """Print workflow results in a concise format."""
+
     # Get status from the final node result or overall result
     status = result.get("status", "unknown")
     if isinstance(result, dict) and len(result) == 1:
@@ -87,6 +90,7 @@ def print_results(result: dict):
 
 def main():
     """Main function to run the class imbalance agent."""
+
     parser = argparse.ArgumentParser(description="Class Imbalance Agent")
     parser.add_argument("--file", type=str, help="Path to the CSV file")
     parser.add_argument("--target", type=str, help="Name of the target column")
@@ -122,6 +126,7 @@ def main():
 
     def make_serializable(obj):
         """Recursively make objects JSON serializable."""
+        
         if hasattr(obj, 'shape'):  # DataFrame or numpy array
             return f"DataFrame/Array with shape {obj.shape}"
         elif isinstance(obj, dict):

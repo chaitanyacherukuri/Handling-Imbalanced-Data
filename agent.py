@@ -42,6 +42,7 @@ class ImbalanceAgentState(TypedDict):
 
 def create_workflow() -> StateGraph:
     """Create the simplified LangGraph workflow."""
+    
     workflow = StateGraph(ImbalanceAgentState)
 
     # Add nodes
@@ -74,6 +75,7 @@ def create_workflow() -> StateGraph:
 
 def run_workflow(file_path: str, target_column: str, output_dir: Optional[str] = None) -> Dict:
     """Run the class imbalance workflow."""
+
     workflow = create_workflow()
 
     initial_state = {

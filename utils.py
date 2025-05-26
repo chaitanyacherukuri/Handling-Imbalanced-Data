@@ -13,6 +13,7 @@ import numpy as np
 
 def handle_node_errors(func: Callable) -> Callable:
     """Decorator to handle errors in workflow nodes."""
+
     @wraps(func)
     def wrapper(state: Dict) -> Dict:
         try:
@@ -28,12 +29,14 @@ def handle_node_errors(func: Callable) -> Callable:
 
 def ensure_output_dir(output_dir: Optional[str]) -> Optional[str]:
     """Ensure output directory exists."""
+
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     return output_dir
 
 def load_dataset(file_path: str) -> pd.DataFrame:
     """Load a dataset from a CSV file."""
+    
     try:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -45,6 +48,7 @@ def load_dataset(file_path: str) -> pd.DataFrame:
 
 def analyze_class_distribution(df: pd.DataFrame, target_column: str) -> Dict:
     """Analyze the class distribution in the dataset."""
+
     if target_column not in df.columns:
         raise ValueError(f"Target column '{target_column}' not found in dataset")
 
@@ -62,6 +66,7 @@ def analyze_class_distribution(df: pd.DataFrame, target_column: str) -> Dict:
 
 def detect_imbalance(distribution: Dict) -> Dict:
     """Detect if there's a class imbalance in the dataset."""
+
     class_percentages = distribution["class_percentages"]
     min_class = min(class_percentages.items(), key=lambda x: x[1])
     max_class = max(class_percentages.items(), key=lambda x: x[1])
@@ -87,6 +92,7 @@ def detect_imbalance(distribution: Dict) -> Dict:
 
 def visualize_distribution(df: pd.DataFrame, target_column: str, title: str = "Class Distribution") -> plt.Figure:
     """Visualize the class distribution."""
+
     plt.figure(figsize=(10, 6))
     ax = sns.countplot(x=target_column, data=df)
 
@@ -104,12 +110,14 @@ def visualize_distribution(df: pd.DataFrame, target_column: str, title: str = "C
 
 def save_visualization(fig: plt.Figure, file_path: str) -> None:
     """Save a visualization to a file."""
+
     fig.savefig(file_path)
     plt.close(fig)
 
 def prepare_data_for_resampling(df: pd.DataFrame, target_column: str,
                                features: Optional[List[str]] = None) -> Tuple[pd.DataFrame, pd.Series]:
     """Prepare data for resampling with advanced preprocessing including imputation and encoding."""
+    
     print(f"Starting data preprocessing for resampling...")
     print(f"Original dataset shape: {df.shape}")
 
