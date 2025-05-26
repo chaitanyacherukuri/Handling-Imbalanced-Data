@@ -23,6 +23,7 @@ from utils import (
 @handle_node_errors
 def load_data_node(state: Dict) -> Dict:
     """Node for loading data from a CSV file."""
+
     file_path = state.get("file_path")
     if not file_path:
         raise ValueError("No file path provided")
@@ -38,6 +39,7 @@ def load_data_node(state: Dict) -> Dict:
 @handle_node_errors
 def analyze_distribution_node(state: Dict) -> Dict:
     """Node for analyzing class distribution."""
+
     df = state.get("data")
     target_column = state.get("target_column")
 
@@ -62,6 +64,7 @@ def analyze_distribution_node(state: Dict) -> Dict:
 @handle_node_errors
 def detect_imbalance_node(state: Dict) -> Dict:
     """Node for detecting class imbalance."""
+
     distribution = state.get("distribution")
     if distribution is None:
         raise ValueError("No distribution information available")
@@ -74,6 +77,7 @@ def detect_imbalance_node(state: Dict) -> Dict:
 
 def get_default_technique(severity: str) -> str:
     """Get default technique based on imbalance severity."""
+
     return {
         "severe": "SMOTE",
         "moderate": "Random Over-sampling",
@@ -83,6 +87,7 @@ def get_default_technique(severity: str) -> str:
 @handle_node_errors
 def recommend_technique_node(state: Dict) -> Dict:
     """Node for recommending an appropriate resampling technique using LLM."""
+
     distribution = state.get("distribution")
     imbalance_info = state.get("imbalance_info")
 
@@ -146,6 +151,7 @@ Reason: [brief explanation]"""
 @handle_node_errors
 def apply_resampling_node(state: Dict) -> Dict:
     """Node for applying the recommended resampling technique."""
+
     data = state.get("data")
     target_column = state.get("target_column")
     recommended_technique = state.get("recommended_technique")
@@ -190,6 +196,7 @@ def apply_resampling_node(state: Dict) -> Dict:
 @handle_node_errors
 def visualize_results_node(state: Dict) -> Dict:
     """Node for visualizing the results of resampling."""
+
     original_data = state.get("data")
     resampled_data = state.get("resampled_data")
     target_column = state.get("target_column")
@@ -224,6 +231,7 @@ def visualize_results_node(state: Dict) -> Dict:
 @handle_node_errors
 def save_results_node(state: Dict) -> Dict:
     """Node for saving the resampled dataset."""
+
     resampled_data = state.get("resampled_data")
     if resampled_data is None:
         raise ValueError("No resampled data available")
@@ -242,6 +250,7 @@ def save_results_node(state: Dict) -> Dict:
 
 def get_default_ml_algorithms(dataset_size: int, num_features: int) -> Dict:
     """Get default ML algorithm recommendations based on dataset characteristics."""
+
     algorithms = []
 
     if dataset_size > 50000:  # Large dataset
@@ -271,6 +280,7 @@ def get_default_ml_algorithms(dataset_size: int, num_features: int) -> Dict:
 @handle_node_errors
 def recommend_ml_algorithm_node(state: Dict) -> Dict:
     """Recommend optimal ML classification algorithms for the resampled dataset."""
+
     resampled_data = state.get("resampled_data")
     applied_technique = state.get("applied_technique")
     target_column = state.get("target_column")
@@ -325,45 +335,31 @@ Reason: [brief explanation]"""
         response = llm.invoke(prompt)
         recommendation_text = response.content
 
-        # Parse LLM response with improved logic
+        # Simplified parsing logic using regex
+        import re
         algorithms = []
-        lines = recommendation_text.split('\n')
-        current_algorithm = None
-        in_negative_section = False
+        target_algorithms = ["Random Forest", "SVM", "Logistic Regression", "XGBoost", "Neural Networks", "Naive Bayes"]
+        found_algorithms = set()  # Track unique algorithms
 
-        for line in lines:
-            line = line.strip()
+        # Split text before negative sections to avoid parsing rejected algorithms
+        text_parts = re.split(r'I did not choose|not recommended', recommendation_text, flags=re.IGNORECASE)
+        parse_text = text_parts[0] if text_parts else recommendation_text
 
-            # Skip negative sections
-            if "I did not choose" in line or "not recommended" in line.lower():
-                in_negative_section = True
-                continue
+        # Extract algorithm-reason pairs using regex patterns
+        patterns = [
+            r'\*\*Algorithm\d*:\s*([^*]+)\*\*\s*\n\s*Reason:\s*([^\n]+)',  # **Algorithm: Name** format
+            r'Algorithm\s*\d*:\s*([^\n]+)\s*\n\s*Reason:\s*([^\n]+)'       # Algorithm: Name format
+        ]
 
-            if in_negative_section and line.startswith("*"):
-                continue  # Skip bullet points in negative section
-
-            if line.startswith("Algorithm") and ":" in line:
-                in_negative_section = False
-                current_algorithm = line.split(":", 1)[1].strip()
-                # Clean up algorithm name
-                for target_alg in ["Random Forest", "SVM", "Logistic Regression", "XGBoost", "Neural Networks", "Naive Bayes"]:
-                    if target_alg in current_algorithm:
-                        current_algorithm = target_alg
+        for pattern in patterns:
+            matches = re.findall(pattern, parse_text, re.IGNORECASE | re.MULTILINE)
+            for alg_text, reason in matches:
+                # Find matching target algorithm
+                for target_alg in target_algorithms:
+                    if target_alg.lower() in alg_text.lower() and target_alg not in found_algorithms:
+                        algorithms.append({"name": target_alg, "reason": reason.strip()})
+                        found_algorithms.add(target_alg)
                         break
-            elif line.startswith("Reason:") and current_algorithm:
-                reason = line.split(":", 1)[1].strip()
-                algorithms.append({"name": current_algorithm, "reason": reason})
-                current_algorithm = None
-            # Alternative parsing for **Algorithm: Name** format
-            elif line.startswith("**Algorithm") and "**" in line:
-                in_negative_section = False
-                # Extract algorithm name from **Algorithm1: Random Forest** format
-                if ":" in line:
-                    alg_part = line.split(":", 1)[1].replace("**", "").strip()
-                    for target_alg in ["Random Forest", "SVM", "Logistic Regression", "XGBoost", "Neural Networks", "Naive Bayes"]:
-                        if target_alg in alg_part:
-                            current_algorithm = target_alg
-                            break
 
         # Fallback if parsing failed
         if not algorithms:
