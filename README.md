@@ -2,9 +2,10 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://python.org)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.0.19%2B-green.svg)](https://github.com/langchain-ai/langgraph)
-[![Groq](https://img.shields.io/badge/Groq-Llama--4--Scout-orange.svg)](https://groq.com)
+[![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-orange.svg)](https://aws.amazon.com/bedrock/)
+[![Claude](https://img.shields.io/badge/Claude-3.7%20Sonnet-purple.svg)](https://www.anthropic.com/claude)
 
-An intelligent agentic AI application built with LangGraph that provides comprehensive data imbalance handling with ML algorithm recommendations powered by Llama-4-Scout.
+An intelligent agentic AI application built with LangGraph that provides comprehensive data imbalance handling with ML algorithm recommendations powered by Claude 3.7 Sonnet via AWS Bedrock.
 
 ## 📊 Overview
 
@@ -28,7 +29,7 @@ The application implements an 8-node LangGraph workflow with intelligent error h
 | 🔄 **load_data** | Data ingestion | Loads CSV files with validation and error handling |
 | 📊 **analyze_distribution** | Statistical analysis | Computes class distribution metrics and percentages |
 | 🔍 **detect_imbalance** | Imbalance detection | Calculates imbalance ratios and severity classification |
-| 🤖 **recommend_technique** | LLM-powered recommendations | Uses Llama-4-Scout to suggest optimal resampling techniques |
+| 🤖 **recommend_technique** | LLM-powered recommendations | Uses Claude 3.7 Sonnet to suggest optimal resampling techniques |
 | ⚖️ **apply_resampling** | Data resampling | Applies recommended techniques with advanced preprocessing |
 | 📈 **visualize_results** | Visualization generation | Creates before/after distribution plots |
 | 💾 **save_results** | Data persistence | Saves resampled datasets and metadata |
@@ -48,7 +49,7 @@ apply_resampling → visualize_results → save_results → recommend_ml_algorit
 ├── nodes.py             # Implementation of all 8 workflow nodes
 ├── utils.py             # Advanced preprocessing and utility functions
 ├── requirements.txt     # Python dependencies with version pinning
-├── .env                 # Environment variables (API keys)
+├── .env                 # Environment variables (AWS credentials)
 ├── data/               # Sample datasets and input files
 └── output/             # Generated results, visualizations, and reports
 ```
@@ -59,21 +60,21 @@ apply_resampling → visualize_results → save_results → recommend_ml_algorit
 ```
 langgraph>=0.0.19        # Workflow orchestration framework
 langchain>=0.0.335       # LLM integration and chains
-langchain-groq>=0.0.2    # Groq API integration for Llama-4-Scout
+langchain-aws>=0.2.6     # AWS Bedrock integration for Claude 3.7 Sonnet
+boto3>=1.34.84           # AWS SDK for Python
 pandas>=2.0.0            # Data manipulation and analysis
 numpy>=1.24.0            # Numerical computing
 matplotlib>=3.7.0        # Plotting and visualization
 seaborn>=0.12.0          # Statistical data visualization
 scikit-learn>=1.2.0      # Machine learning utilities
 imbalanced-learn>=0.10.0 # Specialized resampling algorithms
-python-dotenv>=1.0.0     # Environment variable management
 ```
 
 ### System Requirements
 - **Python**: 3.8+ (recommended: 3.9+)
 - **Memory**: 4GB+ RAM (8GB+ for large datasets)
 - **Storage**: 1GB+ free space for outputs
-- **API Access**: Groq API key for Llama-4-Scout model
+- **AWS Access**: AWS credentials with Bedrock permissions for Claude 3.7 Sonnet
 
 ## 🛠️ Installation & Setup
 
@@ -92,32 +93,55 @@ python -m pip install -r requirements.txt
 conda install --file requirements.txt
 ```
 
-### 3. Environment Configuration
+### 3. AWS Configuration
+Configure AWS credentials for Bedrock access:
+
+#### Option A: AWS CLI Configuration (Recommended)
+```bash
+# Install AWS CLI if not already installed
+pip install awscli
+
+# Configure AWS credentials
+aws configure
+# Enter your AWS Access Key ID, Secret Access Key, and preferred region
+```
+
+#### Option B: Environment Variables
 Create a `.env` file in the project root:
 
 ```bash
 # Create .env file
 touch .env
 
-# Add your Groq API key
-echo "GROQ_API_KEY=your_groq_api_key_here" > .env
+# Add AWS credentials (optional - use if not using AWS CLI)
+echo "AWS_DEFAULT_REGION=us-east-1" >> .env
+echo "AWS_PROFILE=your-aws-profile" >> .env
+echo "BEDROCK_ASSUME_ROLE=arn:aws:iam::account:role/BedrockRole" >> .env
 ```
 
-**Required Environment Variables:**
-- `GROQ_API_KEY`: Your Groq API key for Llama-4-Scout access
+**Required AWS Configuration:**
+- **AWS Credentials**: Access Key ID and Secret Access Key with Bedrock permissions
+- **AWS Region**: Region where Bedrock is available (e.g., `us-east-1`, `us-west-2`)
+- **Bedrock Permissions**: IAM permissions for `bedrock:InvokeModel` action
 
-**Get Your Groq API Key:**
-1. Visit [Groq Console](https://console.groq.com/)
-2. Sign up for a free account
-3. Navigate to API Keys section
-4. Generate a new API key
-5. Copy the key to your `.env` file
+**AWS Setup Steps:**
+1. **Create AWS Account**: Sign up at [AWS Console](https://aws.amazon.com/)
+2. **Enable Bedrock**: Navigate to AWS Bedrock service and request access to Claude 3.7 Sonnet model
+3. **Create IAM User**: Create user with programmatic access and Bedrock permissions
+4. **Configure Credentials**: Use AWS CLI or environment variables as shown above
+
+**Important Notes:**
+- **Model Access**: Claude 3.7 Sonnet requires explicit access request in AWS Bedrock console
+- **Regional Availability**: Ensure Claude 3.7 Sonnet is available in your chosen AWS region
+- **Billing**: Monitor AWS costs as Bedrock charges per token usage
 
 ### 4. Verify Installation
 ```bash
-# Test the setup
+# Test the setup (ensure AWS credentials are configured)
 python main.py --generate-sample --output test_run
 ```
+
+**Note**: The application will automatically create a Bedrock client and display connection information when starting.
 
 ## 🚀 Usage Guide
 
@@ -178,6 +202,11 @@ python main.py --file /path/to/dataset.csv --target class_label --output custom_
 
 ### Sample Dataset Example
 ```
+Create new client
+  Using region: us-east-1
+boto3 Bedrock client successfully created!
+https://bedrock-runtime.us-east-1.amazonaws.com
+
 Generated dataset: 1142 samples, ratio 7.0:1
 Processing: results/sample_dataset.csv (target: target)
 Starting data preprocessing for resampling...
@@ -292,46 +321,97 @@ The system provides intelligent ML algorithm suggestions based on:
 - **Validation checks**: Ensures data integrity throughout processing
 - **Error handling**: Graceful degradation with informative messages
 
-## 🤖 LLM Integration: Groq + Llama-4-Scout
+## 🤖 LLM Integration: AWS Bedrock + Claude 3.7 Sonnet
 
-### Why Llama-4-Scout?
-This application leverages Meta's **Llama-4-Scout** model through Groq's high-performance API:
+### Why Claude 3.7 Sonnet?
+This application leverages Anthropic's **Claude 3.7 Sonnet** model through AWS Bedrock's enterprise-grade infrastructure:
 
 **Key Advantages:**
-- 🧠 **Advanced Reasoning**: Superior analytical capabilities for complex resampling decisions
-- ⚡ **Ultra-Fast Inference**: Groq's specialized hardware delivers sub-second response times
-- 🔓 **Open Source**: Built on Meta's transparent Llama 4 architecture
-- 🎯 **Instruction-Tuned**: Optimized for following detailed analytical instructions
-- 💰 **Cost-Effective**: Competitive pricing for high-quality AI reasoning
+- 🧠 **Superior Reasoning**: State-of-the-art analytical capabilities for complex data science decisions
+- 🔒 **Enterprise Security**: AWS Bedrock provides enterprise-grade security and compliance
+- 🌐 **Global Availability**: Deployed across multiple AWS regions for low latency
+- 🎯 **Instruction Following**: Exceptional ability to follow detailed analytical instructions
+- 💼 **Enterprise Ready**: Built for production workloads with SLA guarantees
+- 📊 **Data Privacy**: No training on customer data, ensuring complete privacy
 
 ### LLM Configuration
 ```python
-# Optimized settings for deterministic, high-quality outputs
-ChatGroq(
-    model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-    temperature=0,           # Deterministic outputs
-    max_tokens=800,          # Sufficient for detailed reasoning
-    groq_api_key=os.environ.get("GROQ_API_KEY")
+# Optimized settings for high-quality analytical outputs
+ChatBedrock(
+    model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+    model_kwargs={
+        "temperature": 0.1,  # Low temperature for consistent reasoning
+        "max_tokens": 500    # Sufficient for detailed analysis
+    },
+    client=boto3_bedrock     # AWS Bedrock client with retry logic
+)
+```
+
+### AWS Bedrock Client Setup
+```python
+# Robust client configuration with automatic retry and role assumption
+boto3_bedrock = get_bedrock_client(
+    assumed_role=os.environ.get("BEDROCK_ASSUME_ROLE", None),
+    region=os.environ.get("AWS_DEFAULT_REGION", None)
 )
 ```
 
 ### Intelligent Fallback System
-- **Primary**: LLM-powered recommendations with detailed reasoning
-- **Fallback**: Rule-based recommendations when LLM is unavailable
-- **Hybrid**: Combines LLM insights with domain expertise
-- **Reliability**: Ensures workflow completion regardless of API status
+- **Primary**: Claude 3.7 Sonnet-powered recommendations with detailed reasoning
+- **Fallback**: Rule-based recommendations when Bedrock is unavailable
+- **Retry Logic**: Automatic retry with exponential backoff for transient failures
+- **Reliability**: Ensures workflow completion regardless of AWS service status
 
 ## 🛠️ Troubleshooting
 
 ### Common Issues & Solutions
 
-**❌ Missing API Key Error**
+**❌ AWS Credentials Not Found**
 ```bash
-FileNotFoundError: Missing .env file with GROQ_API_KEY
+NoCredentialsError: Unable to locate credentials
 ```
-**Solution:** Create `.env` file with your Groq API key:
+**Solution:** Configure AWS credentials using one of these methods:
 ```bash
-echo "GROQ_API_KEY=your_actual_api_key" > .env
+# Method 1: AWS CLI
+aws configure
+
+# Method 2: Environment variables
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+export AWS_DEFAULT_REGION=us-east-1
+
+# Method 3: AWS Profile
+export AWS_PROFILE=your-profile-name
+```
+
+**❌ Bedrock Access Denied**
+```bash
+AccessDeniedException: User is not authorized to perform: bedrock:InvokeModel
+```
+**Solution:** Ensure your AWS user/role has Bedrock permissions:
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream"
+            ],
+            "Resource": "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-7-sonnet*"
+        }
+    ]
+}
+```
+
+**❌ Model Not Available in Region**
+```bash
+ValidationException: The model ID is not supported in this region
+```
+**Solution:** Use a supported AWS region for Claude 3.7 Sonnet:
+```bash
+export AWS_DEFAULT_REGION=us-east-1  # or us-west-2, eu-west-1
 ```
 
 **❌ File Not Found Error**
@@ -371,11 +451,18 @@ df_sample = df.sample(n=10000, random_state=42)
 - Use `--output` on SSD storage for faster I/O
 - Ensure 8GB+ RAM availability
 - Consider data sampling for initial analysis
+- Monitor AWS Bedrock token usage and costs
 
 **For Many Features (>100 columns):**
 - Preprocessing may take longer due to categorical encoding
 - Monitor memory usage during feature transformation
 - Consider feature selection before resampling
+- Claude 3.7 Sonnet handles complex feature analysis efficiently
+
+**AWS-Specific Optimizations:**
+- Use AWS regions closest to your location for lower latency
+- Consider AWS Bedrock provisioned throughput for high-volume usage
+- Monitor CloudWatch metrics for Bedrock API performance
 
 ## 🚀 Extending the Application
 
@@ -401,9 +488,11 @@ def get_default_ml_algorithms(dataset_size: int, num_features: int) -> Dict:
 ### Integration Ideas
 - **Web Interface**: Flask/FastAPI dashboard for interactive analysis
 - **Model Training**: Automatic model training and evaluation post-resampling
-- **Batch Processing**: Process multiple datasets in parallel
-- **Real-time Monitoring**: Track data drift and rebalancing needs
+- **Batch Processing**: Process multiple datasets in parallel with AWS Lambda
+- **Real-time Monitoring**: Track data drift and rebalancing needs with CloudWatch
 - **Custom Visualizations**: Advanced plotting with Plotly/Bokeh
+- **AWS Integration**: S3 for data storage, SageMaker for model deployment
+- **Multi-Model Support**: Integrate other Bedrock models for specialized tasks
 
 ## 📄 License
 
@@ -421,4 +510,4 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 
 ---
 
-**Built with ❤️ using LangGraph, Llama-4-Scout, and modern ML practices**
+**Built with ❤️ using LangGraph, AWS Bedrock, Claude 3.7 Sonnet, and modern ML practices**
